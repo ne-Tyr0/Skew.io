@@ -13,6 +13,7 @@ const DIST = path.resolve(HERE, '../dist/client');
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
 };
 
 const server = http.createServer((req, res) => {

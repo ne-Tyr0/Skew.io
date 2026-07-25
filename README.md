@@ -11,7 +11,7 @@ your rivals — all in lockstep over the network, with bots to fill the arena.
 
 ---
 
-## 🎮 Live demo
+## Live demo
 
 _No hosted demo yet — you can put one online in about 5 minutes (free). See **[Deploy a live demo](#-deploy-a-live-demo)** below, then drop your URL here._
 
@@ -65,7 +65,7 @@ npm run headless -- 6 18 150 50   # netcode soak: 6 clients, 18s, 150±50ms late
 npm run simtest        # determinism unit test
 ```
 
-## 🚀 Deploy a live demo
+## Deploy a live demo
 
 The production build is **one Node process** that serves the built client *and* the WebSocket
 on a single port — perfect for a free host like **Render**, **Railway**, or **Fly.io**.

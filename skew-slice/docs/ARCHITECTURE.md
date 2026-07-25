@@ -467,3 +467,24 @@ across 400 ticks with jammers active, and a placed jammer survives snapshot and
 checkpoint round-trips with an unchanged hash. This is the template for every
 future persistent mechanic (repeaters, decay, the power budget): if it survives a
 tick, it goes in the hash, the snapshot, and the checkpoint, or it will desync.
+
+---
+
+## 11. Bots — AI players as pure event emitters
+
+The "one `Sim`, everything derived, clients never state outcomes" model pays off
+one more time here: a bot needs no special path. It is a slot + a source with **no
+socket** (`Room.bots`), it reads the sim on the server to decide what to do, and it
+produces the **same events a human produces** — `commit`, `surge` — through the
+same `emit()`. It is not in `clients`, so it receives nothing and costs no
+bandwidth; it is trusted input, so it skips the human rate limits.
+
+The consequence that matters: **bots add zero determinism surface.** Whatever a bot
+emits is broadcast and replayed by every client exactly like a human's event, so
+the hash check still holds — verified by running the headless soak against a 6-bot
+server and getting the usual **0 drift, every hash matched**. Count comes from the
+`BOTS` env var (`--bots N` via the dev script), default 0 so the determinism tools
+run against a clean board. Humans outrank bots: a real join into a full board
+evicts one (`removeBot`). The AI itself is deliberately simple — greedy routing to
+the nearest un-held square, an occasional Blast when it can afford one next to a
+rival — and lives entirely in `room.ts`, swappable without touching anything else.

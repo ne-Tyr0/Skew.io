@@ -2,13 +2,13 @@ import { performance } from 'node:perf_hooks';
 import type { WebSocket } from 'ws';
 import {
   BEAT_MS, TICKS_PER_BEAT, COMMIT_DELAY_BEATS, KEYFRAME_EVERY_BEATS,
-  MAX_PATH_CELLS, INTENT_MIN_GAP_MS, MAX_NODES, HUES, BOARD_W, BOARD_H, BEATS_PER_MEASURE,
+  MAX_PATH_CELLS, INTENT_MIN_GAP_MS, MAX_NODES, HUES, BOARD_W, BOARD_H, BEATS_PER_MEASURE, CELL_COUNT,
   SURGE_MIN_SCORE, SURGE_COST, SURGE_COOLDOWN_MS,
   VIA_MIN_SCORE, VIA_COST, VIA_COOLDOWN_MS,
   JAMMER_MIN_SCORE, JAMMER_COST, JAMMER_COOLDOWN_MS,
 } from '../shared/constants';
-import { cellIndex, cellX, cellY, inBounds } from '../shared/grid';
-import { Sim, KIND_EMPTY, type SimEvent } from '../shared/sim';
+import { cellIndex, cellX, cellY, inBounds, DX, DY, dirFromDelta } from '../shared/grid';
+import { Sim, KIND_EMPTY, KIND_NODE, type SimEvent } from '../shared/sim';
 import { encode, type ClientMsg, type ServerMsg } from '../shared/protocol';
 
 // Hard cap on a broadcast avatar. A 96x96 JPEG dataURL is a few KB; this bounds
@@ -28,6 +28,21 @@ interface Client {
   jitterMs: number;
   queue: { at: number; data: string }[]; // ordered artificial-latency queue
 }
+
+// A server-side AI player. It occupies a slot and a source exactly like a human,
+// but has no socket — it reads the sim directly and produces the same intent/
+// attack events a human would, through the same emit() path. Clients cannot tell
+// the difference, and determinism is untouched (bots only emit events).
+interface Bot {
+  slot: number;
+  name: string;
+  source: number;
+  lastActMs: number;
+  actGapMs: number;
+  lastAtkMs: number;
+}
+
+const BOT_NAMES = ['Ace', 'Nova', 'Echo', 'Rin', 'Kip', 'Vex', 'Juno', 'Pax', 'Zed', 'Mara', 'Odin', 'Wren', 'Bex', 'Cyra', 'Dax', 'Fable'];
 
 // Server-only RNG. Never call this from shared/sim.ts — every roll must leave
 // the server as an event so all clients derive the same world.
@@ -51,10 +66,16 @@ export class Room {
   private lastKeyframeBeat = -1;
   // Cosmetic avatars, kept entirely off the deterministic sim. slot -> dataURL.
   private avatars = new Map<number, string>();
+  // AI fill-players. Count comes from the BOTS env var (0 = off, keeps tests clean).
+  private bots = new Map<number, Bot>();
+  private botTarget = Math.max(0, Math.min(40, Number(process.env.BOTS ?? 0)));
+  private botNameIdx = 0;
 
   constructor() {
     for (let s = 64; s >= 1; s--) this.freeSlots.push(s); // pop() gives 1,2,3...
     this.seedNodes(14);
+    for (let i = 0; i < this.botTarget; i++) this.spawnBot();
+    if (this.botTarget > 0) console.log(`[bots] spawned ${this.bots.size}`);
     setTimeout(() => this.loop(), 0);
   }
 
@@ -78,6 +99,7 @@ export class Room {
       console.warn('[room] hard resync: dropped', Math.round((performance.now() - this.nextBeatAt) / BEAT_MS), 'beats');
       this.nextBeatAt = performance.now() + BEAT_MS;
     }
+    this.botTick(performance.now());
     this.flushQueues(performance.now());
     const delay = this.nextBeatAt - performance.now();
     setTimeout(this.loop, Math.max(0, Math.min(delay, 8)));
@@ -106,6 +128,9 @@ export class Room {
 
   // ---- connections ---------------------------------------------------------
   join(ws: WebSocket, name: string, lagMs: number, jitterMs: number): number | null {
+    // A human takes priority over a bot: if the board is full but bots hold
+    // slots, evict one to make room.
+    if (this.freeSlots.length === 0) this.removeBot();
     const slot = this.freeSlots.pop();
     if (slot === undefined) return null;
     const source = this.findSpawn();
@@ -235,6 +260,124 @@ export class Room {
 
   private validCell(cell: unknown): cell is number {
     return Number.isInteger(cell) && (cell as number) >= 0 && (cell as number) < BOARD_W * BOARD_H;
+  }
+
+  // ---- bots ----------------------------------------------------------------
+  // A bot is a slot + source with no socket. It reads the sim and emits the same
+  // events a human would; clients replay them identically, so there is no
+  // determinism cost. Trusted server-side input, so it skips the rate limits.
+
+  private spawnBot(): void {
+    const slot = this.freeSlots.pop();
+    if (slot === undefined) return;
+    const source = this.findSpawn();
+    if (source < 0) { this.freeSlots.push(slot); return; }
+    const name = BOT_NAMES[this.botNameIdx++ % BOT_NAMES.length];
+    this.bots.set(slot, { slot, name, source, lastActMs: 0, actGapMs: 500 + Math.random() * 700, lastAtkMs: 0 });
+    this.emit({
+      t: 'join', beat: this.sim.beat + COMMIT_DELAY_BEATS, seq: 0,
+      slot, hueIdx: (slot - 1) % HUES.length, source, name,
+    });
+  }
+
+  private removeBot(): void {
+    const slot = this.bots.keys().next();
+    if (slot.done) return;
+    this.bots.delete(slot.value);
+    this.freeSlots.push(slot.value);
+    this.emit({ t: 'leave', beat: this.sim.beat + 1, seq: 0, slot: slot.value });
+  }
+
+  /** Give each bot a turn on its own stagger, so they don't all act in lockstep. */
+  private botTick(now: number): void {
+    if (this.bots.size === 0) return;
+    for (const b of this.bots.values()) {
+      if (now - b.lastActMs < b.actGapMs) continue;
+      b.lastActMs = now;
+      b.actGapMs = 500 + Math.random() * 900;
+      this.botAct(b, now);
+    }
+  }
+
+  private botAct(b: Bot, now: number): void {
+    const sim = this.sim;
+    const me = sim.players.get(b.slot);
+    if (!me) return; // join not applied yet
+    if (this.botMaybeAttack(b, me.score, now)) return;
+
+    // Grow toward the nearest square we don't already hold. Anchor on a random
+    // owned cell so the network branches instead of always extending the tip.
+    const mine: number[] = [];
+    for (let i = 0; i < CELL_COUNT; i++) if (sim.owner[i] === b.slot) mine.push(i);
+    if (mine.length === 0) return;
+    const start = mine[(Math.random() * mine.length) | 0];
+    const target = this.nearestNode(start, b.slot);
+    if (target < 0) return;
+    const dirs = this.botRoute(start, target);
+    if (dirs.length) this.commitFor(b.slot, start, dirs);
+  }
+
+  /** Bots use Blast (Surge) when they can afford it and sit next to a rival. */
+  private botMaybeAttack(b: Bot, score: number, now: number): boolean {
+    if (score < SURGE_MIN_SCORE || now - b.lastAtkMs < 5000) return false;
+    if (Math.random() > 0.5) return false;
+    const spot = this.botSurgeSpot(b.slot);
+    if (spot < 0) return false;
+    b.lastAtkMs = now;
+    this.emit({ t: 'surge', beat: this.sim.beat + COMMIT_DELAY_BEATS, seq: 0, slot: b.slot, cell: spot });
+    return true;
+  }
+
+  /** One of our cells that borders an enemy — the useful place to Blast from. */
+  private botSurgeSpot(slot: number): number {
+    for (let i = 0; i < CELL_COUNT; i++) {
+      if (this.sim.owner[i] !== slot) continue;
+      const x = cellX(i), y = cellY(i);
+      for (let d = 0; d < 8; d++) {
+        const nx = x + DX[d], ny = y + DY[d];
+        if (!inBounds(nx, ny)) continue;
+        const o = this.sim.owner[cellIndex(nx, ny)];
+        if (o !== 0 && o !== slot) return i;
+      }
+    }
+    return -1;
+  }
+
+  private nearestNode(from: number, slot: number): number {
+    const fx = cellX(from), fy = cellY(from);
+    let best = -1, bestD = 1e9;
+    for (const [cell, holder] of this.sim.nodes) {
+      if (holder === slot) continue; // already ours — no gain
+      const d = Math.max(Math.abs(cellX(cell) - fx), Math.abs(cellY(cell) - fy));
+      if (d < bestD) { bestD = d; best = cell; }
+    }
+    return best;
+  }
+
+  /** Greedy 8-direction walk toward a target, stopping at the node or an obstacle. */
+  private botRoute(start: number, target: number): number[] {
+    const sim = this.sim;
+    const dirs: number[] = [];
+    let x = cellX(start), y = cellY(start);
+    const tx = cellX(target), ty = cellY(target);
+    for (let k = 0; k < 40 && (x !== tx || y !== ty); k++) {
+      const d = dirFromDelta(Math.sign(tx - x), Math.sign(ty - y));
+      if (d < 0) break;
+      const nx = x + DX[d], ny = y + DY[d];
+      if (!inBounds(nx, ny)) break;
+      const c = cellIndex(nx, ny);
+      if (sim.kind[c] === KIND_NODE) { dirs.push(d); break; } // link into the node
+      if (sim.owner[c] !== 0 || sim.kind[c] !== KIND_EMPTY) break; // blocked
+      dirs.push(d); x = nx; y = ny;
+    }
+    return dirs;
+  }
+
+  /** Trusted commit for bots — same ownership check as handleIntent, no rate limit. */
+  private commitFor(slot: number, start: number, dirs: number[]): void {
+    if (dirs.length === 0 || dirs.length > MAX_PATH_CELLS) return;
+    if (this.sim.owner[start] !== slot) return;
+    this.emit({ t: 'commit', beat: this.sim.beat + COMMIT_DELAY_BEATS, seq: 0, slot, start, dirs });
   }
 
   /**

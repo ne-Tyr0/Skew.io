@@ -238,7 +238,7 @@ function updateLeaderboard(now: number): void {
 // Tier meter + ability chips. Tier is a pure function of the locally-derived
 // score; the cooldown sweep is approximate (from our own send time) since the
 // authoritative gate is the server's.
-const TIER_NAMES = ['ETCHER', 'SURGE', 'VIA BLOWER', 'JAMMER'];
+const TIER_NAMES = ['ETCHER', 'BLAST', 'SNIPE', 'JAMMER'];
 function updateAbilities(now: number, me: { score: number } | undefined): void {
   if (!me) { ab.wrap.setAttribute('hidden', ''); return; }
   ab.wrap.removeAttribute('hidden');

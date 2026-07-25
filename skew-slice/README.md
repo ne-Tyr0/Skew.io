@@ -29,10 +29,18 @@ tools/
 
 ```bash
 npm install
-npm run dev          # server :8787 + vite :5173
+npm run dev                 # server :8787 + vite :5173
+npm run dev -- --bots 6     # ...or fill the arena with 6 AI players
 ```
 
 Open **http://localhost:5173** in two tabs.
+
+**Bots** are optional AI fill-players (default off; `--bots N`, or `BOTS=N npm start`
+in prod). They run in-process on the server with no socket — a bot reads the sim
+and emits the exact same intent/attack events a human would, through the same
+`emit()` path, so clients can't tell them apart and determinism is untouched (a
+6-bot arena still passes the headless hash check). Humans take priority: if the
+64-slot board is full, a real join evicts a bot. Tests default to `--bots 0`.
 
 Production-ish (server serves the built client on one port):
 

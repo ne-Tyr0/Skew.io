@@ -118,6 +118,9 @@
   .tut li { display: flex; gap: 10px; color: var(--ink); align-items: baseline; }
   .tut li b { color: var(--hi); }
   .tut .glyph { color: var(--me); font-size: 13px; flex: none; width: 20px; }
+  .tut .goal { color: var(--hi); background: #0C0B09; border: 1px solid var(--line);
+               border-left: 3px solid var(--me); border-radius: 6px; padding: 10px 12px; line-height: 1.6; }
+  .tut .goal b { color: var(--me); }
 </style>
 </head>
 <body>
@@ -134,7 +137,7 @@
       <div><div class="k">sync</div><div class="v connecting" id="sync">…</div></div>
     </div>
     <div class="row">
-      <div id="help">drag from your own trace to etch · wasd pans · scroll zooms · sources fire on beat 0 of every measure</div>
+      <div id="help">drag from your diamond to draw a wire into a glowing square · wasd / scroll to move + zoom</div>
       <div class="v" id="board"></div>
     </div>
   </div>
@@ -151,8 +154,8 @@
       <span id="tierNext"></span>
     </div>
     <div class="abilities-row">
-      <div class="ability" id="abSurge"><span class="ab-key">SPACE</span><span class="ab-name">Surge</span><span class="ab-state"></span></div>
-      <div class="ability" id="abVia"><span class="ab-key">V</span><span class="ab-name">Via Blower</span><span class="ab-state"></span></div>
+      <div class="ability" id="abSurge"><span class="ab-key">SPACE</span><span class="ab-name">Blast</span><span class="ab-state"></span></div>
+      <div class="ability" id="abVia"><span class="ab-key">V</span><span class="ab-name">Snipe</span><span class="ab-state"></span></div>
       <div class="ability" id="abJammer"><span class="ab-key">G</span><span class="ab-name">Jammer</span><span class="ab-state"></span></div>
     </div>
   </div>
@@ -163,11 +166,11 @@
   <div id="menu" class="overlay">
     <div class="card">
       <div class="brand"><h1>SKEW</h1><span>.IO</span></div>
-      <div class="tag">Route beat-synchronised pulses into demand nodes to score.
-        The whole board pulses in unison — read the β cost, win the corridor.</div>
+      <div class="tag">Draw wires from your diamond to the glowing squares. Each square
+        you reach pays you points every few seconds — grab and hold the most to win.</div>
       <label class="field">
-        <span>callsign</span>
-        <input id="nameInput" type="text" maxlength="16" placeholder="etcher" autocomplete="off" spellcheck="false" />
+        <span>your name</span>
+        <input id="nameInput" type="text" maxlength="16" placeholder="player" autocomplete="off" spellcheck="false" />
       </label>
       <button id="playBtn" class="primary">▶ PLAY</button>
       <div class="btnrow">
@@ -221,13 +224,14 @@
   <div id="tutorial" class="overlay" hidden>
     <div class="card tut">
       <div class="brand"><h1 style="font-size:16px">HOW TO PLAY</h1></div>
+      <p class="goal"><b>Goal:</b> draw wires from your diamond to the glowing squares. Reaching a
+        square captures it, and it pays you points every few seconds. Whoever has the most points is winning.</p>
       <ul>
-        <li><span class="glyph">◆</span><span>You start as a <b>source</b> (the diamond). <b>Drag from it</b> to etch a trace across the lattice.</span></li>
-        <li><span class="glyph">→</span><span>Every source fires on <b>beat 0 of each measure</b>. Route your pulse into a <b>□ node</b> to capture it — it then pays you every measure.</span></li>
-        <li><span class="glyph">β</span><span>The number at the head of your drag is the path's <b>cost in beats</b>. Diagonals cost 1.42. That number is the whole game.</span></li>
-        <li><span class="glyph">⌫</span><span>Drag <b>back over the path</b> you're drawing to rub it out. <b>WASD / arrows</b> pan the camera.</span></li>
-        <li><span class="glyph">⚡</span><span>Score to arm attacks. At <b>120</b>, hover a cell you own and press <b>Space</b> to <b>Surge</b> (fry adjacent rival traces). At <b>400</b>, aim at an enemy junction and press <b>V</b> to blow their <b>via</b>. At <b>900</b>, hover an empty cell and press <b>G</b> to plant a permanent <b>Jammer</b>. Attacks cost score and have a cooldown.</span></li>
-        <li><span class="glyph">•••</span><span>The <b>8 pips</b> top-left are the measure clock, shared by everyone. <b>SYNC</b> must stay green.</span></li>
+        <li><span class="glyph">◆</span><span>The <b>diamond</b> is your home base. <b>Click and drag</b> from it to draw a wire across the grid.</span></li>
+        <li><span class="glyph">→</span><span>Your base fires a <b>spark</b> down your wires on the beat (the dots up top count the beat). Steer a spark into a <b>□ glowing square</b> to capture it.</span></li>
+        <li><span class="glyph">★</span><span>A captured square keeps <b>paying you points</b> until a rival's spark reaches it. Grab and hold as many squares as you can.</span></li>
+        <li><span class="glyph">⌫</span><span>Drag <b>back over a wire</b> to erase it. <b>WASD</b> / arrows move the view, <b>scroll</b> zooms, and the mini-map (bottom-right) jumps you anywhere.</span></li>
+        <li><span class="glyph">⚡</span><span>As your score climbs you unlock <b>attacks</b> to wreck rivals' wires. The chips along the bottom show each one, its key, and when it's ready.</span></li>
       </ul>
       <button id="tutClose" class="primary" style="color:#06100F">Got it</button>
     </div>

@@ -13,7 +13,11 @@ your rivals — all in lockstep over the network, with bots to fill the arena.
 
 ## Live demo
 
-_No hosted demo yet — you can put one online in about 5 minutes (free). See **[Deploy a live demo](#-deploy-a-live-demo)** below, then drop your URL here._
+### 🎮 Play now → **https://skew-io.onrender.com**
+
+Open it in two tabs (or share the link) for real multiplayer — AI bots keep the board busy if
+you're solo. It's on a free host, so the first load after it's been idle can take ~30 seconds
+to wake up. Want your own? See **[Deploy a live demo](#deploy-a-live-demo)** below.
 
 ## What is it?
 
@@ -86,6 +90,33 @@ The fastest path (Render, free tier, ~5 min) — full click-by-click steps are i
 - **[`skew-slice/docs/ARCHITECTURE.md`](skew-slice/docs/ARCHITECTURE.md)** — the real design
   doc: the determinism model, the state-sync math, the netcode, rendering, and every hard part
   called out on purpose.
+
+## Built with AI
+
+Much of this project was built collaboratively with **Claude** (Anthropic's Claude Opus 4.8)
+through **[Claude Code](https://claude.com/claude-code)** — AI-authored commits are co-authored
+in the git history. On top of the original deterministic vertical slice, the AI designed,
+implemented, and verified:
+
+- **A gnarly bug fix** — traced a Canvas compositing bug where the pulse layer's decay painted
+  *opaque* background over itself and hid the whole board behind the HUD, then fixed it with
+  `destination-out` alpha decay.
+- **The menu & shell** — pre-game menu, persisted settings (mute / volumes / theme / pan speed),
+  alternate dark themes, live leaderboard, broadcast avatars, and a re-openable tutorial.
+- **Progression & the attack ladder** — score-gated tiers and Blast / Snipe / Jammer, each added
+  as a *deterministic* sim event with server-side gating and a HUD tier meter. The Jammer (a
+  persistent entity) was threaded through the state hash, snapshots, and rollback checkpoints.
+- **Generative audio** — a fully synthesized Web-Audio soundtrack tied to the beat clock, no samples.
+- **UX polish** — onboarding hints, incoming-attack feedback, zoom + minimap, and a plain-language
+  rewrite of all in-game copy.
+- **AI bots** — in-process server-side players that emit the same events as humans, so they add
+  zero determinism cost (a 6-bot arena still passes the hash check).
+- **Tests, docs & ops** — extended the headless determinism soak to cover the new mechanics, added
+  a sim-level determinism unit test, and wrote the deploy guide, this landing page, and the
+  architecture notes.
+
+Every change was verified before commit — typecheck, production build, the timing probe, and the
+multi-client headless soak all green.
 
 ## Repo layout
 

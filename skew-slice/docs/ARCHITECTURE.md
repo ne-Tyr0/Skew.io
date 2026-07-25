@@ -490,6 +490,13 @@ enclosure) and the deferred power budget were waiting on — verified by a decay
 in `npm run simtest` and by the headless soak staying at 0 drift with wire decaying
 under load.
 
+**Fire Now** (`F`) is the cheapest possible new mechanic done right: a
+`{t:'fireNow', slot}` event that just calls the same `fireSource(slot)` the
+automatic cadence uses, spawning an extra pulse. It adds *zero* new state — pulses
+are already hashed/snapshotted — so it needed nothing beyond the event and a
+server-side cooldown. It's the intended shape of an "agency" verb that keeps the
+rhythm identity: you choose *when* to inject signal, the sim still puts it on rails.
+
 ---
 
 ## 11. Bots — AI players as pure event emitters

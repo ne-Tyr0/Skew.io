@@ -21,6 +21,11 @@ export const TICKS_PER_MEASURE = TICKS_PER_BEAT * BEATS_PER_MEASURE;
 // board, faster feedback. Node hold income + jammers still tick per measure.
 export const FIRE_EVERY_BEATS = 4;
 
+// "Fire Now" (key F): launch an extra pulse from your source on demand. No score
+// cost and no tier gate — it's a basic agency verb — just a short cooldown so it's
+// a deliberate injection, not spam.
+export const FIRE_NOW_COOLDOWN_MS = 2000;
+
 // ---- Rounds ----------------------------------------------------------------
 export const ROUND_BEATS = 1920;     // 240s @ 8 beats/sec = a 4-minute round
 export const INTERMISSION_MS = 8000; // client-side winner banner after a reset

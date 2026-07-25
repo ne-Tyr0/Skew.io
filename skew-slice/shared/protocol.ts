@@ -12,6 +12,7 @@ export type ClientMsg =
   | { t: 'surge'; cell: number }   // Tier 1 attack; server gates, sim applies
   | { t: 'viaBlow'; cell: number } // Tier 2 attack
   | { t: 'jammer'; cell: number }  // Tier 3 placeable
+  | { t: 'fireNow' }               // launch an extra pulse from your source
   | { t: 'avatar'; data: string }  // cosmetic source glyph, relayed not simulated
   | { t: 'resync' };
 

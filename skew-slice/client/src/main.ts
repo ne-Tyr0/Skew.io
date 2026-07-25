@@ -3,7 +3,7 @@ import {
   SURGE_MIN_SCORE, SURGE_COST, SURGE_COOLDOWN_MS,
   VIA_MIN_SCORE, VIA_COST, VIA_COOLDOWN_MS,
   JAMMER_MIN_SCORE, JAMMER_COST, JAMMER_COOLDOWN_MS,
-  ROUND_BEATS, INTERMISSION_MS,
+  FIRE_NOW_COOLDOWN_MS, ROUND_BEATS, INTERMISSION_MS,
 } from '../../shared/constants';
 import { cellX, cellY } from '../../shared/grid';
 import { Net } from './net';
@@ -43,6 +43,7 @@ const ab = {
   tierName: document.getElementById('tierName')!,
   tierFill: document.getElementById('tierFill') as HTMLElement,
   tierNext: document.getElementById('tierNext')!,
+  fire: document.getElementById('abFire')!,
   surge: document.getElementById('abSurge')!,
   via: document.getElementById('abVia')!,
   jammer: document.getElementById('abJammer')!,
@@ -327,6 +328,13 @@ function updateAbilities(now: number, me: { score: number } | undefined): void {
   const pct = ceil > floor ? Math.min(100, Math.max(0, ((score - floor) / (ceil - floor)) * 100)) : 100;
   ab.tierFill.style.width = pct + '%';
   ab.tierNext.textContent = tier === 3 ? 'MAX' : `${Math.max(0, ceil - score)} to next`;
+
+  // Fire: always available, cooldown only (no cost, no tier gate)
+  const fireRemain = FIRE_NOW_COOLDOWN_MS - (now - net.lastFireSentMs);
+  const fireState = ab.fire.querySelector('.ab-state') as HTMLElement;
+  ab.fire.classList.remove('ready', 'locked', 'cooldown', 'poor');
+  if (fireRemain > 0) { ab.fire.classList.add('cooldown'); fireState.textContent = `${Math.ceil(fireRemain / 1000)}s`; }
+  else { ab.fire.classList.add('ready'); fireState.textContent = '●'; }
 
   chip(ab.surge, score >= SURGE_MIN_SCORE, SURGE_COST, score, SURGE_COOLDOWN_MS - (now - net.lastSurgeSentMs), SURGE_MIN_SCORE);
   chip(ab.via, score >= VIA_MIN_SCORE, VIA_COST, score, VIA_COOLDOWN_MS - (now - net.lastViaSentMs), VIA_MIN_SCORE);

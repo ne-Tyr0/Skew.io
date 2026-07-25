@@ -3,6 +3,7 @@ import {
   SURGE_MIN_SCORE, SURGE_COST, SURGE_COOLDOWN_MS,
   VIA_MIN_SCORE, VIA_COST, VIA_COOLDOWN_MS,
   JAMMER_MIN_SCORE, JAMMER_COST, JAMMER_COOLDOWN_MS,
+  FIRE_NOW_COOLDOWN_MS,
 } from '../../shared/constants';
 import { cellIndex, cellX, cellY, inBounds, dirFromDelta, DX, DY, pathTicks } from '../../shared/grid';
 import { KIND_EMPTY, KIND_NODE, type Sim } from '../../shared/sim';
@@ -65,6 +66,16 @@ export class Input {
     const net = this.net;
     const me = net.sim.players.get(net.slot);
     if (!me) return;
+
+    // Fire Now needs no target — handle it before the hover-cell guard.
+    if (e.key.toLowerCase() === 'f') {
+      if (performance.now() - net.lastFireSentMs < FIRE_NOW_COOLDOWN_MS) return;
+      e.preventDefault();
+      net.sendFireNow();
+      audio.fire();
+      return;
+    }
+
     const cell = this.hoverCell;
     if (cell < 0) return;
 

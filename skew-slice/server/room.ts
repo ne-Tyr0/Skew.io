@@ -6,7 +6,7 @@ import {
   SURGE_MIN_SCORE, SURGE_COST, SURGE_COOLDOWN_MS,
   VIA_MIN_SCORE, VIA_COST, VIA_COOLDOWN_MS,
   JAMMER_MIN_SCORE, JAMMER_COST, JAMMER_COOLDOWN_MS,
-  ROUND_BEATS,
+  FIRE_NOW_COOLDOWN_MS, ROUND_BEATS,
 } from '../shared/constants';
 import { cellIndex, cellX, cellY, inBounds, DX, DY, dirFromDelta } from '../shared/grid';
 import { Sim, KIND_EMPTY, KIND_NODE, type SimEvent } from '../shared/sim';
@@ -25,6 +25,7 @@ interface Client {
   lastSurgeMs: number;
   lastViaMs: number;
   lastJammerMs: number;
+  lastFireMs: number;
   lagMs: number;
   jitterMs: number;
   queue: { at: number; data: string }[]; // ordered artificial-latency queue
@@ -144,7 +145,7 @@ export class Room {
     const source = this.findSpawn();
     if (source < 0) { this.freeSlots.push(slot); return null; }
 
-    const c: Client = { ws, slot, name, lastIntentMs: 0, lastSurgeMs: 0, lastViaMs: 0, lastJammerMs: 0, lagMs, jitterMs, queue: [] };
+    const c: Client = { ws, slot, name, lastIntentMs: 0, lastSurgeMs: 0, lastViaMs: 0, lastJammerMs: 0, lastFireMs: 0, lagMs, jitterMs, queue: [] };
     this.clients.set(slot, c);
 
     // The joiner's own arrival is an event like any other, so every client's
@@ -190,6 +191,9 @@ export class Room {
         break;
       case 'jammer':
         this.handleJammer(c, msg.cell);
+        break;
+      case 'fireNow':
+        this.handleFireNow(c);
         break;
       case 'avatar':
         this.handleAvatar(c, msg.data);
@@ -264,6 +268,14 @@ export class Room {
     if (now - c.lastJammerMs < JAMMER_COOLDOWN_MS) return;
     c.lastJammerMs = now;
     this.emit({ t: 'jammer', beat: this.sim.beat + COMMIT_DELAY_BEATS, seq: 0, slot: c.slot, cell });
+  }
+
+  private handleFireNow(c: Client): void {
+    if (!this.sim.players.has(c.slot)) return;
+    const now = performance.now();
+    if (now - c.lastFireMs < FIRE_NOW_COOLDOWN_MS) return;
+    c.lastFireMs = now;
+    this.emit({ t: 'fireNow', beat: this.sim.beat + COMMIT_DELAY_BEATS, seq: 0, slot: c.slot });
   }
 
   private validCell(cell: unknown): cell is number {

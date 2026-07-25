@@ -106,5 +106,16 @@ check('decay: two sims agree mid-decay', d1.hash() === d2.hash());
 const dsnap = d1.snapshot(); const d3 = new Sim(); d3.restore(dsnap);
 check('decay: life survives snapshot round-trip', d3.hash() === d1.hash());
 
-console.log(failed ? '\nRESULT: FAIL' : '\nRESULT: PASS — jammer, round reset, and trace decay are deterministic across sims, snapshots, and checkpoints');
+// --- 6. fire now: manual pulse injection is deterministic ---
+const f1 = new Sim(); const f2 = new Sim();
+for (const s of [f1, f2]) {
+  s.applyEvent({ t: 'join', beat: 0, seq: 1, slot: 1, hueIdx: 0, source: cellIndex(20, 20), name: 'a' });
+  s.out[cellIndex(20, 20)] = 0b11; // source has two outgoing directions
+}
+f1.applyEvent({ t: 'fireNow', beat: 0, seq: 5, slot: 1 });
+f2.applyEvent({ t: 'fireNow', beat: 0, seq: 5, slot: 1 });
+check('fireNow: pulses spawned from the source', f1.pulses.length === 2);
+check('fireNow: two sims agree', f1.hash() === f2.hash());
+
+console.log(failed ? '\nRESULT: FAIL' : '\nRESULT: PASS — jammer, round reset, trace decay, and fire-now are deterministic across sims, snapshots, and checkpoints');
 process.exit(failed ? 1 : 0);

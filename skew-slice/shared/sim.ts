@@ -56,6 +56,8 @@ export type SimEvent =
   | { t: 'surge'; beat: number; seq: number; slot: number; cell: number }
   | { t: 'viaBlow'; beat: number; seq: number; slot: number; cell: number }
   | { t: 'jammer'; beat: number; seq: number; slot: number; cell: number }
+  // Manual extra pulse from a player's source (the "Fire Now" verb).
+  | { t: 'fireNow'; beat: number; seq: number; slot: number }
   // Round boundary: wipe the board, zero scores, keep players + re-seed nodes.
   | { t: 'reset'; beat: number; seq: number; nodes: number[] };
 
@@ -168,15 +170,17 @@ export class Sim {
   // Every source fires on the measure boundary. The whole board is one clock
   // domain, which is why COINCIDE junctions will be meaningful later.
   private emitSources(): void {
-    const slots = [...this.players.keys()].sort((a, b) => a - b);
-    for (const slot of slots) {
-      const p = this.players.get(slot)!;
-      const m = this.out[p.source];
-      for (let d = 0; d < 8; d++) {
-        if (m & (1 << d)) {
-          this.pulses.push({ id: this.nextPulseId++, owner: slot, cell: p.source, dir: d, acc: 0 });
-        }
-      }
+    for (const slot of [...this.players.keys()].sort((a, b) => a - b)) this.fireSource(slot);
+  }
+
+  /** Spawn a pulse down each outgoing direction of one player's source. Shared by
+   *  the automatic cadence and the manual "Fire Now" verb. */
+  private fireSource(slot: number): void {
+    const p = this.players.get(slot);
+    if (!p) return;
+    const m = this.out[p.source];
+    for (let d = 0; d < 8; d++) {
+      if (m & (1 << d)) this.pulses.push({ id: this.nextPulseId++, owner: slot, cell: p.source, dir: d, acc: 0 });
     }
   }
 
@@ -282,6 +286,7 @@ export class Sim {
       case 'surge': this.applySurge(ev.slot, ev.cell); break;
       case 'viaBlow': this.applyViaBlow(ev.slot, ev.cell); break;
       case 'jammer': this.applyJammer(ev.slot, ev.cell); break;
+      case 'fireNow': this.fireSource(ev.slot); break;
       case 'reset': this.applyReset(ev.nodes); break;
     }
   }

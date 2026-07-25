@@ -124,6 +124,8 @@ live. The AudioContext opens on the Play click (browsers require a user gesture)
 - Sources fire a pulse **every 4 beats (0.5s)** — the ring around your source
   fills toward the next fire and flashes when it launches. The whole board
   pulses in unison.
+- **Press `F` to fire an extra pulse** from your base on demand (short cooldown,
+  free) — push signal into a fresh route or beat a rival to a contested square.
 - Route into a **square node** to capture it. It then pays you every measure
   until someone else's pulse arrives.
 - **Rounds last 4 minutes.** A countdown shows at the top; the HUD `rank` tells

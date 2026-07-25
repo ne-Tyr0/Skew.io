@@ -217,7 +217,9 @@ export class Net {
   lastSurgeSentMs = 0;
   lastViaSentMs = 0;
   lastJammerSentMs = 0;
+  lastFireSentMs = 0;
   sendSurge(cell: number): void { this.lastSurgeSentMs = performance.now(); this.send({ t: 'surge', cell }); }
   sendViaBlow(cell: number): void { this.lastViaSentMs = performance.now(); this.send({ t: 'viaBlow', cell }); }
   sendJammer(cell: number): void { this.lastJammerSentMs = performance.now(); this.send({ t: 'jammer', cell }); }
+  sendFireNow(): void { this.lastFireSentMs = performance.now(); this.send({ t: 'fireNow' }); }
 }

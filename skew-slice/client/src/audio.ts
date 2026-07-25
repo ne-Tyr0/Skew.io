@@ -113,6 +113,23 @@ class Engine {
     if (own) this.blip(this.sfxBus, f * 3.0, 'sine', 0.06, 0.4);
   }
 
+  /** Fire Now — a short upward blip acknowledging a manual pulse launch. */
+  fire(): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(440, t);
+    o.frequency.exponentialRampToValueAtTime(880, t + 0.09);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.16, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g); g.connect(this.sfxBus);
+    o.start(t); o.stop(t + 0.18);
+  }
+
   /** You got hit — a darker, nastier version of the buzz. Fired when your own
    *  territory is torn out by someone else's attack. */
   hit(): void {

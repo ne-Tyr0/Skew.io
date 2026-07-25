@@ -11,8 +11,8 @@
 //   4. No iteration over unsorted Maps where order affects state.
 
 import {
-  BOARD_W, CELL_COUNT, TICKS_PER_BEAT, BEATS_PER_MEASURE,
-  NODE_CAPTURE, NODE_REFRESH, NODE_HOLD_INCOME,
+  BOARD_W, CELL_COUNT, TICKS_PER_BEAT, BEATS_PER_MEASURE, FIRE_EVERY_BEATS,
+  NODE_CAPTURE, NODE_REFRESH, NODE_HOLD_INCOME, LIFE_MAX,
   SURGE_COST, SURGE_RADIUS, VIA_COST, JAMMER_COST, JAMMER_RADIUS,
 } from './constants';
 import { DX, DY, DIR_COST, cellIndex, cellX, cellY, inBounds } from './grid';
@@ -55,14 +55,19 @@ export type SimEvent =
   // already covered.
   | { t: 'surge'; beat: number; seq: number; slot: number; cell: number }
   | { t: 'viaBlow'; beat: number; seq: number; slot: number; cell: number }
-  | { t: 'jammer'; beat: number; seq: number; slot: number; cell: number };
+  | { t: 'jammer'; beat: number; seq: number; slot: number; cell: number }
+  // Round boundary: wipe the board, zero scores, keep players + re-seed nodes.
+  | { t: 'reset'; beat: number; seq: number; nodes: number[] };
 
 export interface SimSnapshot {
   tick: number;
+  round: number;
+  roundStartTick: number;
   nextPulseId: number;
   owner: number[]; // run-length encoded, see rle()
   out: number[];
   kind: number[];
+  life: number[];
   pulses: Pulse[];
   players: PlayerState[];
   nodes: [number, number][]; // [cell, holderSlot]
@@ -105,6 +110,7 @@ export class Sim {
   owner = new Uint8Array(CELL_COUNT); // 0 = unowned, else player slot
   out = new Uint8Array(CELL_COUNT);   // bitmask of outgoing directions
   kind = new Uint8Array(CELL_COUNT);
+  life = new Uint8Array(CELL_COUNT);  // wire freshness; pulses refresh, decay clears
 
   pulses: Pulse[] = [];
   nextPulseId = 1;
@@ -112,6 +118,9 @@ export class Sim {
   players = new Map<number, PlayerState>();
   nodes = new Map<number, number>(); // cell -> holder slot (0 = unheld)
   jammers = new Map<number, number>(); // cell -> owner slot (persistent EMI sources)
+
+  round = 0;          // increments on each reset
+  roundStartTick = 0; // tick the current round began — clients derive the timer from this
 
   tick = 0;
   /** Events waiting for their beat. beat -> events sorted by seq. */
@@ -139,10 +148,11 @@ export class Sim {
         for (const e of evs) this.applyEvent(e);
         this.pending.delete(b);
       }
-      if (b % BEATS_PER_MEASURE === 0) {
-        this.emitSources();
+      if (b % FIRE_EVERY_BEATS === 0) this.emitSources();     // pulses: faster cadence
+      if (b % BEATS_PER_MEASURE === 0) {                       // economy: per measure
         this.payHolders();
         this.jammerEmit();
+        this.decayTraces();
       }
     }
     this.stepPulses();
@@ -180,6 +190,17 @@ export class Sim {
     }
   }
 
+  /** Once per measure: age every wire. A passing pulse resets life to full, so
+   *  only abandoned wire runs out and is cleared. Keeps the board from silting up. */
+  private decayTraces(): void {
+    for (let i = 0; i < CELL_COUNT; i++) {
+      if (this.kind[i] !== KIND_WIRE) continue;
+      const v = this.life[i] - 1;
+      if (v <= 0) { this.owner[i] = 0; this.kind[i] = KIND_EMPTY; this.out[i] = 0; this.life[i] = 0; }
+      else this.life[i] = v;
+    }
+  }
+
   private stepPulses(): void {
     const spawned: Pulse[] = [];
     let w = 0;
@@ -202,6 +223,7 @@ export class Sim {
           } else {
             p.cell = c;
             p.acc = 0;
+            this.life[c] = LIFE_MAX; // a live pulse keeps this wire fresh
             const m = this.out[c];
             if (m === 0) {
               alive = false;                     // dead-end stub
@@ -246,7 +268,7 @@ export class Sim {
       }
       case 'leave': {
         for (let i = 0; i < CELL_COUNT; i++) {
-          if (this.owner[i] === ev.slot) { this.owner[i] = 0; this.out[i] = 0; this.kind[i] = KIND_EMPTY; }
+          if (this.owner[i] === ev.slot) { this.owner[i] = 0; this.out[i] = 0; this.kind[i] = KIND_EMPTY; this.life[i] = 0; }
         }
         this.pulses = this.pulses.filter((p) => p.owner !== ev.slot);
         for (const [c, h] of this.nodes) if (h === ev.slot) this.nodes.set(c, 0);
@@ -260,7 +282,33 @@ export class Sim {
       case 'surge': this.applySurge(ev.slot, ev.cell); break;
       case 'viaBlow': this.applyViaBlow(ev.slot, ev.cell); break;
       case 'jammer': this.applyJammer(ev.slot, ev.cell); break;
+      case 'reset': this.applyReset(ev.nodes); break;
     }
+  }
+
+  /**
+   * Round reset. Wipes all wires, pulses, jammers, and scores, keeps every player
+   * anchored on a re-marked source, and seeds a fresh set of nodes from the event
+   * (so the seed is identical on every machine). Deterministic and idempotent.
+   */
+  private applyReset(nodeCells: number[]): void {
+    this.owner.fill(0); this.out.fill(0); this.kind.fill(0); this.life.fill(0);
+    this.pulses.length = 0;
+    this.jammers.clear();
+    for (const p of this.players.values()) {
+      p.score = 0;
+      this.owner[p.source] = p.slot;
+      this.kind[p.source] = KIND_SOURCE;
+      this.out[p.source] = 0;
+    }
+    this.nodes = new Map();
+    for (const c of nodeCells) {
+      if (this.owner[c] !== 0) continue; // never drop a node on a source
+      this.nodes.set(c, 0);
+      this.kind[c] = KIND_NODE;
+    }
+    this.round++;
+    this.roundStartTick = this.tick;
   }
 
   /**
@@ -291,7 +339,7 @@ export class Sim {
           if (!inBounds(x, y)) continue;
           const c = cellIndex(x, y);
           if (this.kind[c] === KIND_WIRE && this.owner[c] !== 0 && this.owner[c] !== owner) {
-            this.owner[c] = 0; this.kind[c] = KIND_EMPTY; this.out[c] = 0;
+            this.owner[c] = 0; this.kind[c] = KIND_EMPTY; this.out[c] = 0; this.life[c] = 0;
           }
         }
       }
@@ -321,7 +369,7 @@ export class Sim {
         const c = cellIndex(x, y);
         const k = this.kind[c];
         if ((k === KIND_WIRE || k === KIND_JAMMER) && this.owner[c] !== 0 && this.owner[c] !== slot) {
-          this.owner[c] = 0; this.kind[c] = KIND_EMPTY; this.out[c] = 0;
+          this.owner[c] = 0; this.kind[c] = KIND_EMPTY; this.out[c] = 0; this.life[c] = 0;
           if (k === KIND_JAMMER) this.jammers.delete(c); // Surge also kills a rival jammer
         }
       }
@@ -348,7 +396,7 @@ export class Sim {
     const isJammer = this.kind[cell] === KIND_JAMMER;  // Via can also snipe a jammer
     if (!isVia && !isJammer) return;                   // source/node/plain wire are immune
     p.score -= VIA_COST;
-    this.owner[cell] = 0; this.kind[cell] = KIND_EMPTY; this.out[cell] = 0;
+    this.owner[cell] = 0; this.kind[cell] = KIND_EMPTY; this.out[cell] = 0; this.life[cell] = 0;
     if (isJammer) this.jammers.delete(cell);
     this.pulses = this.pulses.filter((pu) => pu.cell !== cell);
   }
@@ -376,6 +424,7 @@ export class Sim {
       if (this.owner[c] !== 0 || this.kind[c] !== KIND_EMPTY) break;
       this.owner[c] = slot;
       this.kind[c] = KIND_WIRE;
+      this.life[c] = LIFE_MAX; // freshly etched wire starts at full life
       this.out[cur] |= (1 << d);
       cur = c;
       laid++;
@@ -394,9 +443,10 @@ export class Sim {
       h ^= (v >>> 24) & 0xff; h = Math.imul(h, 0x01000193);
     };
     mix(this.tick);
+    mix(this.round); mix(this.roundStartTick);
     for (let i = 0; i < CELL_COUNT; i++) {
       if (this.owner[i] === 0 && this.out[i] === 0 && this.kind[i] === 0) continue;
-      mix(i); mix(this.owner[i] | (this.out[i] << 8) | (this.kind[i] << 16));
+      mix(i); mix(this.owner[i] | (this.out[i] << 8) | (this.kind[i] << 16)); mix(this.life[i]);
     }
     const ps = [...this.pulses].sort((a, b) => a.id - b.id);
     for (const p of ps) { mix(p.id); mix(p.cell); mix(p.dir | (p.acc << 8) | (p.owner << 16)); }
@@ -411,10 +461,13 @@ export class Sim {
   snapshot(): SimSnapshot {
     return {
       tick: this.tick,
+      round: this.round,
+      roundStartTick: this.roundStartTick,
       nextPulseId: this.nextPulseId,
       owner: rle(this.owner),
       out: rle(this.out),
       kind: rle(this.kind),
+      life: rle(this.life),
       pulses: this.pulses.map((p) => ({ ...p })),
       players: [...this.players.values()].map((p) => ({ ...p })),
       nodes: [...this.nodes.entries()].sort((a, b) => a[0] - b[0]),
@@ -425,10 +478,13 @@ export class Sim {
 
   restore(s: SimSnapshot): void {
     this.tick = s.tick;
+    this.round = s.round ?? 0;
+    this.roundStartTick = s.roundStartTick ?? 0;
     this.nextPulseId = s.nextPulseId;
     unrle(s.owner, this.owner);
     unrle(s.out, this.out);
     unrle(s.kind, this.kind);
+    if (s.life) unrle(s.life, this.life); else this.life.fill(0);
     this.pulses = s.pulses.map((p) => ({ ...p }));
     this.players = new Map(s.players.map((p) => [p.slot, { ...p }]));
     this.nodes = new Map(s.nodes);
@@ -441,10 +497,13 @@ export class Sim {
   checkpoint(): Checkpoint {
     return {
       tick: this.tick,
+      round: this.round,
+      roundStartTick: this.roundStartTick,
       nextPulseId: this.nextPulseId,
       owner: this.owner.slice(),
       out: this.out.slice(),
       kind: this.kind.slice(),
+      life: this.life.slice(),
       pulses: this.pulses.map((p) => ({ ...p })),
       players: [...this.players.values()].map((p) => ({ ...p })),
       nodes: [...this.nodes.entries()],
@@ -454,10 +513,13 @@ export class Sim {
 
   restoreCheckpoint(c: Checkpoint): void {
     this.tick = c.tick;
+    this.round = c.round;
+    this.roundStartTick = c.roundStartTick;
     this.nextPulseId = c.nextPulseId;
     this.owner.set(c.owner);
     this.out.set(c.out);
     this.kind.set(c.kind);
+    this.life.set(c.life);
     this.pulses = c.pulses.map((p) => ({ ...p }));
     this.players = new Map(c.players.map((p) => [p.slot, { ...p }]));
     this.nodes = new Map(c.nodes);
@@ -468,10 +530,13 @@ export class Sim {
 
 export interface Checkpoint {
   tick: number;
+  round: number;
+  roundStartTick: number;
   nextPulseId: number;
   owner: Uint8Array;
   out: Uint8Array;
   kind: Uint8Array;
+  life: Uint8Array;
   pulses: Pulse[];
   players: PlayerState[];
   nodes: [number, number][];

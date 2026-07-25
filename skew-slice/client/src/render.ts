@@ -1,9 +1,13 @@
-import { CELL_PX, BOARD_W, BOARD_H, TICKS_PER_BEAT, JAMMER_RADIUS } from '../../shared/constants';
+import {
+  CELL_PX, BOARD_W, BOARD_H, TICKS_PER_BEAT, TICK_MS, FIRE_EVERY_BEATS, JAMMER_RADIUS, LIFE_MAX,
+} from '../../shared/constants';
 import { DX, DY, DIR_COST, cellIndex, cellX, cellY } from '../../shared/grid';
-import { KIND_NODE, KIND_SOURCE, type Sim } from '../../shared/sim';
+import { KIND_WIRE, KIND_NODE, KIND_SOURCE, type Sim, type PlayerState } from '../../shared/sim';
 import { activeTheme } from './theme';
 import type { Net } from './net';
 import type { Input } from './input';
+
+interface Effect { x: number; y: number; text: string; hue: string; born: number; ttl: number; kind: 'float' | 'burst' }
 
 export interface Camera { x: number; y: number; zoom: number }
 
@@ -28,6 +32,7 @@ export class Renderer {
   private sprites: HTMLCanvasElement[] = [];
   private spriteThemeId = '';
   private lastCam = { x: 0, y: 0 };
+  private effects: Effect[] = [];
   w = 0; h = 0; dpr = 1;
 
   constructor(base: HTMLCanvasElement, pulse: HTMLCanvasElement) {
@@ -98,15 +103,22 @@ export class Renderer {
       }
     }
 
-    // traces, batched by hue: 8 stroke() calls no matter how busy the board is
-    const lanes: number[][] = activeTheme.hues.map(() => []);
+    // traces, batched by hue AND life bucket, so a decaying wire visibly dims
+    // before it vanishes. Full-life wire stays in bucket 0 (one stroke per hue),
+    // so a healthy board still costs ~8 strokes; only fading wire spills over.
+    const BUCKETS = 4;
+    const bucketAlpha = [0.3, 0.2, 0.12, 0.06];
+    const lanes: number[][][] = activeTheme.hues.map(() => Array.from({ length: BUCKETS }, () => [] as number[]));
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const i = cellIndex(x, y);
         const m = sim.out[i];
         if (m === 0) continue;
         const pl = sim.players.get(sim.owner[i]);
-        const lane = lanes[pl ? pl.hueIdx : 0];
+        const hue = pl ? pl.hueIdx : 0;
+        const life = sim.kind[i] === KIND_WIRE ? sim.life[i] : LIFE_MAX; // sources never fade
+        const bucket = life >= LIFE_MAX ? 0 : Math.min(BUCKETS - 1, Math.floor((1 - life / LIFE_MAX) * BUCKETS));
+        const lane = lanes[hue][bucket];
         const sx = ox + x * CELL_PX + CELL_PX / 2;
         const sy = oy + y * CELL_PX + CELL_PX / 2;
         for (let d = 0; d < 8; d++) {
@@ -118,16 +130,18 @@ export class Renderer {
     g.lineWidth = 2;
     g.lineCap = 'round';
     for (let h = 0; h < lanes.length; h++) {
-      const lane = lanes[h];
-      if (!lane.length) continue;
-      g.strokeStyle = activeTheme.hues[h];
-      g.globalAlpha = 0.3;
-      g.beginPath();
-      for (let k = 0; k < lane.length; k += 4) {
-        g.moveTo(lane[k], lane[k + 1]);
-        g.lineTo(lane[k + 2], lane[k + 3]);
+      for (let b = 0; b < BUCKETS; b++) {
+        const lane = lanes[h][b];
+        if (!lane.length) continue;
+        g.strokeStyle = activeTheme.hues[h];
+        g.globalAlpha = bucketAlpha[b];
+        g.beginPath();
+        for (let k = 0; k < lane.length; k += 4) {
+          g.moveTo(lane[k], lane[k + 1]);
+          g.lineTo(lane[k + 2], lane[k + 3]);
+        }
+        g.stroke();
       }
-      g.stroke();
     }
     g.globalAlpha = 1;
 
@@ -206,6 +220,96 @@ export class Renderer {
 
     this.drawGhosts(g, input, net, ox, oy);
     this.drawHints(g, sim, net, input, ox, oy);
+    const me = sim.players.get(net.slot);
+    if (me) {
+      this.drawBeat(g, net, me);                       // the pulse rhythm, made visible
+      if (me.score === 0) this.drawAim(g, sim, net, me); // onboarding aim assist
+    }
+    this.drawEffects(g, performance.now());
+    g.restore();
+  }
+
+  /** Spawn a floating score or a burst ring at a cell (world coords). */
+  addEffect(cell: number, text: string, hue: string, kind: 'float' | 'burst'): void {
+    this.effects.push({
+      x: cellX(cell) + 0.5, y: cellY(cell) + 0.5, text, hue,
+      born: performance.now(), ttl: kind === 'float' ? 1100 : 500, kind,
+    });
+    if (this.effects.length > 64) this.effects.shift();
+  }
+
+  private drawEffects(g: CanvasRenderingContext2D, now: number): void {
+    for (let i = this.effects.length - 1; i >= 0; i--) {
+      const e = this.effects[i];
+      const t = (now - e.born) / e.ttl;
+      if (t >= 1) { this.effects.splice(i, 1); continue; }
+      const px = e.x * CELL_PX;
+      g.save();
+      if (e.kind === 'burst') {
+        g.globalAlpha = (1 - t) * 0.8;
+        g.strokeStyle = e.hue; g.lineWidth = 2;
+        g.beginPath(); g.arc(px, e.y * CELL_PX, 6 + t * 22, 0, Math.PI * 2); g.stroke();
+      } else {
+        g.globalAlpha = t < 0.15 ? t / 0.15 : 1 - t; // fade in then out
+        g.fillStyle = e.hue;
+        g.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+        g.textAlign = 'center';
+        g.fillText(e.text, px, (e.y - t * 1.1) * CELL_PX); // rise as it ages
+      }
+      g.restore();
+    }
+  }
+
+  /**
+   * The pulse rhythm, made visible. A thin arc around your source fills over the
+   * fire cycle so you can see the next pulse coming, and an expanding ring flashes
+   * the instant it fires. This is the whole timing game, surfaced.
+   */
+  private drawBeat(g: CanvasRenderingContext2D, net: Net, me: PlayerState): void {
+    const cadence = FIRE_EVERY_BEATS * TICKS_PER_BEAT; // ticks between source firings
+    const phase = ((net.sim.tick % cadence) + net.tickFraction()) / cadence; // 0 = just fired
+    const sx = cellX(me.source) * CELL_PX + CELL_PX / 2;
+    const sy = cellY(me.source) * CELL_PX + CELL_PX / 2;
+    const hue = activeTheme.hues[me.hueIdx];
+    g.save();
+    g.strokeStyle = hue;
+    g.lineWidth = 2;
+    g.globalAlpha = 0.45;
+    g.beginPath();
+    g.arc(sx, sy, 16, -Math.PI / 2, -Math.PI / 2 + phase * Math.PI * 2); // charging arc
+    g.stroke();
+    const flash = phase < 0.25 ? 1 - phase / 0.25 : 0;
+    if (flash > 0) {
+      g.globalAlpha = flash * 0.7;
+      g.beginPath(); g.arc(sx, sy, 16 + (1 - flash) * 26, 0, Math.PI * 2); g.stroke();
+    }
+    g.restore();
+  }
+
+  /** A dotted line from your source to the nearest square you don't hold, with a
+   *  rough arrival time — so a brand-new player knows exactly what to aim at. */
+  private drawAim(g: CanvasRenderingContext2D, sim: Sim, net: Net, me: PlayerState): void {
+    const sx0 = cellX(me.source), sy0 = cellY(me.source);
+    let best = -1, bestD = 1e9;
+    for (const [cell, holder] of sim.nodes) {
+      if (holder === net.slot) continue;
+      const d = Math.max(Math.abs(cellX(cell) - sx0), Math.abs(cellY(cell) - sy0));
+      if (d < bestD) { bestD = d; best = cell; }
+    }
+    if (best < 0) return;
+    const hue = activeTheme.hues[me.hueIdx];
+    const ax = sx0 * CELL_PX + CELL_PX / 2, ay = sy0 * CELL_PX + CELL_PX / 2;
+    const bx = cellX(best) * CELL_PX + CELL_PX / 2, by = cellY(best) * CELL_PX + CELL_PX / 2;
+    const secs = (bestD * TICKS_PER_BEAT * TICK_MS) / 1000;
+    g.save();
+    g.setLineDash([3, 7]);
+    g.strokeStyle = hue; g.globalAlpha = 0.4; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+    g.setLineDash([]);
+    g.globalAlpha = 0.85; g.fillStyle = hue;
+    g.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    g.textAlign = 'center';
+    g.fillText(`nearest □  ~${secs.toFixed(1)}s`, (ax + bx) / 2, (ay + by) / 2 - 6);
     g.restore();
   }
 

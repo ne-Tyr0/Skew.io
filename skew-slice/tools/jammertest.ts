@@ -8,9 +8,9 @@
  *
  *   npx tsx tools/jammertest.ts
  */
-import { Sim, KIND_WIRE, KIND_JAMMER } from '../shared/sim';
+import { Sim, KIND_WIRE, KIND_JAMMER, KIND_SOURCE, KIND_NODE } from '../shared/sim';
 import { cellIndex } from '../shared/grid';
-import { JAMMER_COST } from '../shared/constants';
+import { JAMMER_COST, LIFE_MAX, TICKS_PER_MEASURE } from '../shared/constants';
 
 let failed = false;
 const check = (label: string, cond: boolean) => {
@@ -68,5 +68,43 @@ check('checkpoint: perturbation changed the hash', a.hash() !== h0);
 a.restoreCheckpoint(cp);
 check('checkpoint: hash identical after restore', a.hash() === h0 && a.jammers.size === c.jammers.size);
 
-console.log(failed ? '\nRESULT: FAIL' : '\nRESULT: PASS — jammer is deterministic across sims, snapshots, and checkpoints');
+// --- 4. round reset: deterministic wipe + round state through snapshots ---
+const r1 = build(); r1.stepTick();
+const r2 = build(); r2.stepTick();
+r1.players.get(1)!.score = 500; r2.players.get(1)!.score = 500;
+const resetNodes = [cellIndex(40, 40), cellIndex(41, 41), cellIndex(42, 42)];
+r1.applyEvent({ t: 'reset', beat: 0, seq: 20, nodes: resetNodes });
+r2.applyEvent({ t: 'reset', beat: 0, seq: 20, nodes: resetNodes });
+check('reset: scores zeroed', r1.players.get(1)!.score === 0);
+check('reset: source kept', r1.kind[cellIndex(20, 20)] === KIND_SOURCE && r1.owner[cellIndex(20, 20)] === 1);
+check('reset: wire wiped', r1.kind[cellIndex(28, 20)] === 0);
+check('reset: nodes reseeded', r1.nodes.size === resetNodes.length && r1.kind[cellIndex(40, 40)] === KIND_NODE);
+check('reset: round counter incremented', r1.round === 1);
+check('reset: two sims agree after identical reset', r1.hash() === r2.hash());
+const rsnap = r1.snapshot();
+const r3 = new Sim(); r3.restore(rsnap);
+check('reset: round survives snapshot round-trip',
+  r3.round === r1.round && r3.roundStartTick === r1.roundStartTick && r3.hash() === r1.hash());
+
+// --- 5. trace decay: abandoned wire ages out, live wire survives, deterministic ---
+const dc = new Sim();
+dc.applyEvent({ t: 'join', beat: 0, seq: 1, slot: 1, hueIdx: 0, source: cellIndex(20, 20), name: 'a' });
+for (const c of [cellIndex(30, 30), cellIndex(31, 30)]) { dc.owner[c] = 1; dc.kind[c] = KIND_WIRE; dc.life[c] = 2; }
+const aliveCell = cellIndex(35, 35); dc.owner[aliveCell] = 1; dc.kind[aliveCell] = KIND_WIRE; dc.life[aliveCell] = LIFE_MAX;
+dc.advanceTo(3 * TICKS_PER_MEASURE + 1); // cross a few measure boundaries
+check('decay: abandoned wire cleared once its life ran out',
+  dc.kind[cellIndex(30, 30)] === 0 && dc.owner[cellIndex(30, 30)] === 0);
+check('decay: full-life wire survived the same span', dc.kind[aliveCell] === KIND_WIRE);
+
+const d1 = new Sim(); const d2 = new Sim();
+for (const s of [d1, d2]) {
+  s.applyEvent({ t: 'join', beat: 0, seq: 1, slot: 1, hueIdx: 0, source: cellIndex(20, 20), name: 'a' });
+  for (const c of [cellIndex(30, 30), cellIndex(31, 30), cellIndex(32, 30)]) { s.owner[c] = 1; s.kind[c] = KIND_WIRE; s.life[c] = 5; }
+}
+d1.advanceTo(2 * TICKS_PER_MEASURE); d2.advanceTo(2 * TICKS_PER_MEASURE);
+check('decay: two sims agree mid-decay', d1.hash() === d2.hash());
+const dsnap = d1.snapshot(); const d3 = new Sim(); d3.restore(dsnap);
+check('decay: life survives snapshot round-trip', d3.hash() === d1.hash());
+
+console.log(failed ? '\nRESULT: FAIL' : '\nRESULT: PASS — jammer, round reset, and trace decay are deterministic across sims, snapshots, and checkpoints');
 process.exit(failed ? 1 : 0);

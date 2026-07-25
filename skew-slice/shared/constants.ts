@@ -17,6 +17,14 @@ export const TICK_MS = BEAT_MS / TICKS_PER_BEAT; // ~10.4167ms (clock only, neve
 export const BEATS_PER_MEASURE = 8;
 export const TICKS_PER_MEASURE = TICKS_PER_BEAT * BEATS_PER_MEASURE;
 
+// Sources fire on this cadence (was once per measure). 4 beats = 0.5s => livelier
+// board, faster feedback. Node hold income + jammers still tick per measure.
+export const FIRE_EVERY_BEATS = 4;
+
+// ---- Rounds ----------------------------------------------------------------
+export const ROUND_BEATS = 1920;     // 240s @ 8 beats/sec = a 4-minute round
+export const INTERMISSION_MS = 8000; // client-side winner banner after a reset
+
 // ---- Netcode ---------------------------------------------------------------
 // How far in the future the server schedules an accepted intent. This is the
 // entire latency budget: every client must receive the event before this beat
@@ -35,6 +43,13 @@ export const MAX_NODES = 28;
 export const NODE_CAPTURE = 25;
 export const NODE_REFRESH = 4;
 export const NODE_HOLD_INCOME = 2; // per measure, to the holder
+
+// ---- Trace decay -----------------------------------------------------------
+// Every wire cell carries a "life" that a passing pulse refreshes to full and
+// that ticks down once per measure; at 0 the cell is cleared. So an actively
+// pulsed network never dies, but abandoned sprawl fades out in LIFE_MAX seconds.
+// This is the maintenance pressure that keeps the late game from clogging.
+export const LIFE_MAX = 15; // ~15s for an unused wire to vanish (decays 1/measure)
 
 // ---- Progression & attacks -------------------------------------------------
 // Tiers are a pure function of score: a brand-new player is defence-only, so

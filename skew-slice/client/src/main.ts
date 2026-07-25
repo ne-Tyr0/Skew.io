@@ -1,8 +1,9 @@
 import {
-  CELL_PX, BOARD_W, BOARD_H, BEATS_PER_MEASURE, TICKS_PER_BEAT, tierForScore,
+  CELL_PX, BOARD_W, BOARD_H, BEATS_PER_MEASURE, TICKS_PER_BEAT, TICK_MS, tierForScore, NODE_CAPTURE,
   SURGE_MIN_SCORE, SURGE_COST, SURGE_COOLDOWN_MS,
   VIA_MIN_SCORE, VIA_COST, VIA_COOLDOWN_MS,
   JAMMER_MIN_SCORE, JAMMER_COST, JAMMER_COOLDOWN_MS,
+  ROUND_BEATS, INTERMISSION_MS,
 } from '../../shared/constants';
 import { cellX, cellY } from '../../shared/grid';
 import { Net } from './net';
@@ -30,6 +31,13 @@ const lbList = document.getElementById('lbList')!;
 const hitFlash = document.getElementById('hitFlash')!;
 const minimap = document.getElementById('minimap') as HTMLCanvasElement;
 const mmctx = minimap.getContext('2d')!;
+const rankEl = document.getElementById('rank')!;
+const roundTimerEl = document.getElementById('roundTimer')!;
+const roundClockEl = document.getElementById('roundClock')!;
+const winnerEl = document.getElementById('winner')!;
+const winnerNameEl = document.getElementById('winnerName')!;
+const winnerListEl = document.getElementById('winnerList')!;
+const winnerNextEl = document.getElementById('winnerNext')!;
 const ab = {
   wrap: document.getElementById('abilities')!,
   tierName: document.getElementById('tierName')!,
@@ -110,7 +118,67 @@ function frame(now: number): void {
   driveAudio();
   detectHits(now);
   drawMinimap(now);
+  updateRound(now);
   requestAnimationFrame(frame);
+}
+
+// Round timer, rank/gap cue, and the winner banner on reset.
+let prevRound = -1;
+let winnerUntil = 0;
+let lastBoard: { name: string; score: number; slot: number; hue: string }[] = [];
+function updateRound(now: number): void {
+  const players = [...net.sim.players.values()];
+  const me = net.sim.players.get(net.slot);
+  const live = net.status === 'live' && players.length > 0;
+
+  // countdown
+  if (live) {
+    const remainTicks = net.sim.roundStartTick + ROUND_BEATS * TICKS_PER_BEAT - net.sim.tick;
+    const secs = Math.max(0, Math.floor((remainTicks * TICK_MS) / 1000));
+    roundTimerEl.removeAttribute('hidden');
+    roundClockEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  } else {
+    roundTimerEl.setAttribute('hidden', '');
+  }
+
+  // rank + gap
+  if (me && players.length) {
+    const better = players.filter((p) => p.score > me.score).length;
+    const leader = Math.max(...players.map((p) => p.score));
+    const gap = leader - me.score;
+    rankEl.textContent = `${better + 1}/${players.length}${gap > 0 ? ` · ${gap} behind` : ' · leading'}`;
+  } else {
+    rankEl.textContent = '–';
+  }
+
+  // winner banner: fires when the round counter ticks up (board just reset)
+  const board = players
+    .map((p) => ({ name: p.name || `#${p.slot}`, score: p.score, slot: p.slot, hue: activeTheme.hues[p.hueIdx] }))
+    .sort((a, b) => b.score - a.score);
+  if (prevRound < 0) prevRound = net.sim.round;
+  if (net.sim.round > prevRound) {
+    prevRound = net.sim.round;
+    if (lastBoard.length && lastBoard[0].score > 0) { showWinner(lastBoard); winnerUntil = now + INTERMISSION_MS; }
+  }
+  if (winnerUntil > now) {
+    winnerEl.classList.add('show');
+    winnerNextEl.textContent = `next round underway · ${Math.ceil((winnerUntil - now) / 1000)}s`;
+  } else {
+    winnerEl.classList.remove('show');
+  }
+  lastBoard = board;
+}
+
+function showWinner(board: { name: string; score: number; slot: number; hue: string }[]): void {
+  winnerNameEl.textContent = `🏆 ${board[0].name} · ${board[0].score}`;
+  winnerListEl.replaceChildren(...board.slice(0, 5).map((r, i) => {
+    const li = document.createElement('li');
+    if (r.slot === net.slot) li.className = 'me';
+    const n = document.createElement('span'); n.className = 'wn'; n.textContent = `${i + 1}. ${r.name}`;
+    const s = document.createElement('span'); s.textContent = String(r.score);
+    li.append(n, s);
+    return li;
+  }));
 }
 
 // Whole-board minimap: occupied cells by hue, nodes, and the current viewport
@@ -189,7 +257,13 @@ function driveAudio(): void {
   }
   for (const [cell, holder] of net.sim.nodes) {
     const prev = prevHolders.get(cell);
-    if (holder !== 0 && prev !== undefined && prev !== holder) audio.capture(holder === net.slot);
+    if (holder !== 0 && prev !== undefined && prev !== holder) {
+      audio.capture(holder === net.slot);
+      const pl = net.sim.players.get(holder);
+      const hue = pl ? activeTheme.hues[pl.hueIdx] : '#FFFFFF';
+      renderer.addEffect(cell, `+${NODE_CAPTURE}`, hue, 'float');
+      renderer.addEffect(cell, '', hue, 'burst');
+    }
     prevHolders.set(cell, holder);
   }
 }

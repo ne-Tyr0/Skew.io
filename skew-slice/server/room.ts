@@ -6,6 +6,7 @@ import {
   SURGE_MIN_SCORE, SURGE_COST, SURGE_COOLDOWN_MS,
   VIA_MIN_SCORE, VIA_COST, VIA_COOLDOWN_MS,
   JAMMER_MIN_SCORE, JAMMER_COST, JAMMER_COOLDOWN_MS,
+  ROUND_BEATS,
 } from '../shared/constants';
 import { cellIndex, cellX, cellY, inBounds, DX, DY, dirFromDelta } from '../shared/grid';
 import { Sim, KIND_EMPTY, KIND_NODE, type SimEvent } from '../shared/sim';
@@ -64,6 +65,7 @@ export class Room {
   private rng = mulberry32(0xC1A0DE);
   private freeSlots: number[] = [];
   private lastKeyframeBeat = -1;
+  private roundEndsBeat = ROUND_BEATS; // beat the current round wraps up on
   // Cosmetic avatars, kept entirely off the deterministic sim. slot -> dataURL.
   private avatars = new Map<number, string>();
   // AI fill-players. Count comes from the BOTS env var (0 = off, keeps tests clean).
@@ -106,6 +108,12 @@ export class Room {
   };
 
   private onBeat(beat: number): void {
+    if (beat >= this.roundEndsBeat) {
+      const resetBeat = beat + COMMIT_DELAY_BEATS;
+      this.emit({ t: 'reset', beat: resetBeat, seq: 0, nodes: this.rollResetNodes() });
+      this.roundEndsBeat = resetBeat + ROUND_BEATS;
+      console.log(`[round] reset scheduled at beat ${resetBeat}; next round ends ${this.roundEndsBeat}`);
+    }
     if (beat % BEATS_PER_MEASURE === 0 && this.sim.nodes.size < MAX_NODES) {
       const cell = this.findNodeSpot();
       if (cell >= 0) this.emit({ t: 'node', beat: beat + 1, seq: 0, cell });
@@ -394,12 +402,27 @@ export class Room {
 
   // ---- world seeding -------------------------------------------------------
   private findSpawn(): number {
+    let fallback = -1;
     for (let attempt = 0; attempt < 400; attempt++) {
       const x = 6 + Math.floor(this.rng() * (BOARD_W - 12));
       const y = 6 + Math.floor(this.rng() * (BOARD_H - 12));
-      if (this.areaClear(x, y, 5)) return cellIndex(x, y);
+      if (!this.areaClear(x, y, 5)) continue;
+      const cell = cellIndex(x, y);
+      if (fallback < 0) fallback = cell;
+      // Prefer a spawn with a demand node within ~14 cells, so a new player's
+      // first route is short and scores within a few seconds.
+      if (this.nearestNodeDist(x, y) <= 14) return cell;
     }
-    return -1;
+    return fallback;
+  }
+
+  private nearestNodeDist(x: number, y: number): number {
+    let best = 1e9;
+    for (const cell of this.sim.nodes.keys()) {
+      const d = Math.max(Math.abs(cellX(cell) - x), Math.abs(cellY(cell) - y));
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   private findNodeSpot(): number {
@@ -420,6 +443,21 @@ export class Room {
       }
     }
     return true;
+  }
+
+  /** Fresh node cells for a round reset — avoids landing on a player's source. */
+  private rollResetNodes(): number[] {
+    const sources = new Set([...this.sim.players.values()].map((p) => p.source));
+    const out: number[] = [];
+    for (let i = 0; i < 14; i++) {
+      for (let a = 0; a < 200; a++) {
+        const x = 2 + Math.floor(this.rng() * (BOARD_W - 4));
+        const y = 2 + Math.floor(this.rng() * (BOARD_H - 4));
+        const c = cellIndex(x, y);
+        if (!sources.has(c) && !out.includes(c)) { out.push(c); break; }
+      }
+    }
+    return out;
   }
 
   private seedNodes(n: number): void {

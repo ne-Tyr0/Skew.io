@@ -10,7 +10,9 @@
  *   npx tsx tools/probe.ts [lagMs]
  */
 import { Net } from '../client/src/net';
-import { TICKS_PER_BEAT, TICKS_PER_MEASURE } from '../shared/constants';
+import { TICKS_PER_BEAT, FIRE_EVERY_BEATS } from '../shared/constants';
+
+const FIRE_TICKS = FIRE_EVERY_BEATS * TICKS_PER_BEAT; // sources fire on this cadence
 import { DX, DY, cellIndex, cellX, cellY, inBounds, dirFromDelta, DIR_COST } from '../shared/grid';
 import { KIND_EMPTY, KIND_NODE } from '../shared/sim';
 
@@ -33,7 +35,7 @@ const schedule = net.sim.schedule.bind(net.sim);
 net.sim.schedule = (ev) => {
   if (ev.t === 'commit' && ev.slot === net.slot && predictedTick < 0) {
     const commitTick = ev.beat * TICKS_PER_BEAT;
-    const fireTick = Math.ceil(commitTick / TICKS_PER_MEASURE) * TICKS_PER_MEASURE;
+    const fireTick = Math.ceil(commitTick / FIRE_TICKS) * FIRE_TICKS;
     predictedTick = fireTick + routeTicks;
     console.log(`committed on beat ${ev.beat}; first source firing after that is tick ${fireTick}`);
     console.log(`predicted capture at tick ${predictedTick} (beat ${(predictedTick / TICKS_PER_BEAT).toFixed(2)})`);

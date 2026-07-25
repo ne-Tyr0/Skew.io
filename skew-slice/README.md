@@ -121,12 +121,19 @@ live. The AudioContext opens on the Play click (browsers require a user gesture)
 
 - **Drag from your own trace or source** to etch. You start with just a source
   (the diamond) — your first drag has to start on it.
-- Sources fire on **beat 0 of every measure**, so the whole board pulses in
-  unison. Watch the pips.
+- Sources fire a pulse **every 4 beats (0.5s)** — the ring around your source
+  fills toward the next fire and flashes when it launches. The whole board
+  pulses in unison.
 - Route into a **square node** to capture it. It then pays you every measure
   until someone else's pulse arrives.
+- **Rounds last 4 minutes.** A countdown shows at the top; the HUD `rank` tells
+  you where you stand. At the buzzer the leader is crowned and the board wipes
+  for a fresh round.
+- **Wires you stop using fade and die** (~15s). A pulse passing through keeps a
+  wire alive, so your working network persists but abandoned sprawl clears itself
+  — dimming wire warns you before it vanishes. Keep your routes fed.
 - **Drag back over the path you're drawing to rub it out.** That's the undo.
-- **WASD / arrows** pan.
+- **WASD / arrows** pan · **scroll** zooms.
 - The `β` number at the head of your drag is the path's cost in beats. That
   number is the whole game.
 

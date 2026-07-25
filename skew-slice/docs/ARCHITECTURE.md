@@ -460,13 +460,35 @@ jammerEmit()       iterates jammers in cell order → identical on every machine
 ```
 
 It is counterable rather than eternal: a rival's Surge (area) or Via Blower
-(targeted) clears its cell, so the ladder answers itself. Because the soak can't
+(targeted) clears its cell, so the ladder answers itself.
+
+**Rounds** follow the same rule. A 4-minute round ends with a single deterministic
+`reset` event (carrying the fresh node seed) that wipes wires/pulses/jammers, zeroes
+scores, and re-anchors sources — with `round` and `roundStartTick` added to the
+hashed state so clients derive the countdown and detect the wipe identically. The
+winner banner is pure client presentation off the last pre-reset leaderboard.
+Verified live: a soak across several 10-second rounds under latency stayed at
+0 drift while the board wiped and re-seeded each time. Sources also now fire every
+4 beats rather than per measure — a one-line cadence change, income still per
+measure. Because the soak can't
 reliably reach the 900 gate, determinism here is proven directly by
 `npm run simtest` (`tools/jammertest.ts`): two independent sims stay hash-identical
 across 400 ticks with jammers active, and a placed jammer survives snapshot and
 checkpoint round-trips with an unchanged hash. This is the template for every
 future persistent mechanic (repeaters, decay, the power budget): if it survives a
 tick, it goes in the hash, the snapshot, and the checkpoint, or it will desync.
+
+**Trace decay** is the first mechanic built to that template with *array-sized*
+state. Every wire cell carries a `life` (`Uint8Array[CELL_COUNT]`): a passing pulse
+resets it to `LIFE_MAX`, `decayTraces()` ages it once per measure, and a cell that
+hits 0 is cleared — so an actively pulsed network persists while abandoned sprawl
+fades out in ~15s (the renderer buckets wire by life so it visibly dims first).
+`life` is threaded through the hash (per non-empty cell), RLE'd into snapshots, and
+carried in checkpoints, and every cell-clearing path (surge/via/jammer/reset/leave)
+zeroes it. This is the maintenance pressure the design doc's §8.7 (griefing by
+enclosure) and the deferred power budget were waiting on — verified by a decay case
+in `npm run simtest` and by the headless soak staying at 0 drift with wire decaying
+under load.
 
 ---
 

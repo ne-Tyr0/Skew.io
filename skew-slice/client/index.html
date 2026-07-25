@@ -79,6 +79,25 @@
              pointer-events: auto; cursor: pointer; opacity: .92; }
   #minimap[hidden] { display: none; }
 
+  /* ---- round timer + winner banner ---- */
+  #roundTimer { position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+                pointer-events: none; text-align: center; }
+  #roundTimer[hidden] { display: none; }
+  #roundTimer .t { color: var(--hi); font-size: 16px; font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+  #winner { position: fixed; inset: 0; z-index: 8; pointer-events: none; display: flex;
+            align-items: center; justify-content: center; opacity: 0; transition: opacity .4s ease; }
+  #winner.show { opacity: 1; }
+  #winner .wcard { background: color-mix(in srgb, var(--panel) 92%, transparent);
+                   border: 1px solid var(--line); border-radius: 12px; padding: 22px 30px;
+                   text-align: center; min-width: 260px; }
+  #winner .wtitle { color: #4A463D; letter-spacing: .16em; text-transform: uppercase; font-size: 10px; }
+  #winner .wname { color: var(--me); font-size: 24px; font-weight: 700; margin: 6px 0 12px; }
+  #winner ol { list-style: none; display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  #winner li { display: flex; justify-content: space-between; gap: 20px; color: var(--ink); }
+  #winner li .wn { color: var(--hi); }
+  #winner li.me .wn { color: var(--me); }
+  #winner .wnext { color: #5A554A; font-size: 11px; }
+
   /* ---- overlays (menu / settings / tutorial) ---- */
   .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center;
              justify-content: center; padding: 24px; cursor: default;
@@ -137,6 +156,7 @@
       <div><div class="k">players</div><div class="v" id="players">0</div></div>
       <div><div class="k">rtt</div><div class="v" id="ping">–</div></div>
       <div><div class="k">sync</div><div class="v connecting" id="sync">…</div></div>
+      <div><div class="k">rank</div><div class="v" id="rank">–</div></div>
     </div>
     <div class="row">
       <div id="help">drag from your diamond to draw a wire into a glowing square · wasd / scroll to move + zoom</div>
@@ -147,6 +167,20 @@
   <div id="leaderboard" hidden>
     <div class="k">leaderboard</div>
     <ol id="lbList"></ol>
+  </div>
+
+  <div id="roundTimer" hidden>
+    <div class="k">round ends in</div>
+    <div class="t" id="roundClock">4:00</div>
+  </div>
+
+  <div id="winner">
+    <div class="wcard">
+      <div class="wtitle">Round over</div>
+      <div class="wname" id="winnerName">—</div>
+      <ol id="winnerList"></ol>
+      <div class="wnext" id="winnerNext"></div>
+    </div>
   </div>
 
   <div id="abilities" hidden>

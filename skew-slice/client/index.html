@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<title>SKEW.IO — vertical slice</title>
+<style>
+  :root {
+    --me: #22E1E1; --ink: #8A857A;
+    --bg: #0B0A09; --dot: #242119;
+    --panel: #14120F; --line: #2A2620; --hi: #E7E2D6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); }
+  body { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink);
+         -webkit-user-select: none; user-select: none; cursor: crosshair; }
+  canvas { position: fixed; inset: 0; }
+  #pulse { pointer-events: none; }
+
+  /* red vignette pulse when your territory is attacked */
+  #hitFlash { position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 5;
+              background: radial-gradient(ellipse at center, transparent 45%, rgba(255,52,40,0.42) 100%);
+              transition: opacity .5s ease; }
+  #hitFlash.on { opacity: 1; transition: opacity .04s ease; }
+
+  /* ---- in-game HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; padding: 16px;
+         display: flex; flex-direction: column; justify-content: space-between; }
+  .row { display: flex; gap: 20px; align-items: baseline; }
+  .k { color: #4A463D; letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
+  .v { color: var(--ink); }
+  #score { color: var(--me); font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+  #beat { display: flex; gap: 5px; }
+  .pip { width: 6px; height: 6px; background: #2A2620; display: block; }
+  .pip.on { background: var(--me); }
+  .live { color: #6FBF73; } .drift { color: #E8C33A; } .lost { color: #FF6B4A; }
+  .connecting { color: #4A463D; }
+  #help { color: #3A362E; }
+
+  /* ---- leaderboard ---- */
+  #leaderboard { position: fixed; top: 16px; right: 16px; pointer-events: none;
+                 min-width: 150px; text-align: right; }
+  #leaderboard .k { display: block; margin-bottom: 6px; }
+  #leaderboard ol { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+  #leaderboard li { display: flex; justify-content: flex-end; gap: 8px; align-items: baseline; }
+  #leaderboard li.me .lb-name { color: var(--hi); font-weight: 600; }
+  .lb-dot { width: 6px; height: 6px; border-radius: 50%; align-self: center; }
+  .lb-name { color: var(--ink); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-score { color: var(--hi); font-variant-numeric: tabular-nums; }
+
+  /* ---- abilities / tier ---- */
+  #abilities { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+               pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  #abilities[hidden] { display: none; }
+  #tierWrap { display: flex; align-items: center; gap: 10px; }
+  #tierName { color: var(--hi); letter-spacing: .12em; font-size: 10px; text-transform: uppercase; }
+  #tierBar { width: 150px; height: 4px; background: #221F19; border-radius: 2px; overflow: hidden; }
+  #tierFill { height: 100%; width: 0%; background: var(--me); transition: width .3s ease; }
+  #tierNext { color: #5A554A; font-size: 10px; }
+  .abilities-row { display: flex; gap: 10px; }
+  .ability { display: flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid var(--line);
+             border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+  .ability .ab-key { color: #0B0A09; background: #4A463D; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 700; }
+  .ability .ab-name { color: var(--ink); letter-spacing: .06em; }
+  .ability .ab-state { color: #5A554A; font-variant-numeric: tabular-nums; min-width: 24px; text-align: right; }
+  .ability.ready { border-color: var(--me); }
+  .ability.ready .ab-key { background: var(--me); }
+  .ability.ready .ab-name, .ability.ready .ab-state { color: var(--hi); }
+  .ability.locked { opacity: .45; }
+  .ability.cooldown .ab-state { color: var(--me); }
+  .ability.poor { border-color: #6b5a1e; }
+  .ability.poor .ab-state { color: #E8C33A; }
+
+  /* ---- minimap ---- */
+  #minimap { position: fixed; right: 16px; bottom: 16px; width: 132px; height: 132px;
+             border: 1px solid var(--line); background: var(--bg); image-rendering: pixelated;
+             pointer-events: auto; cursor: pointer; opacity: .92; }
+  #minimap[hidden] { display: none; }
+
+  /* ---- overlays (menu / settings / tutorial) ---- */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center;
+             justify-content: center; padding: 24px; cursor: default;
+             background: color-mix(in srgb, var(--bg) 82%, transparent);
+             -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .overlay[hidden] { display: none; }
+  .card { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line);
+          border-radius: 10px; padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { color: var(--hi); font-size: 22px; letter-spacing: .28em; font-weight: 700; }
+  .brand span { color: var(--me); font-size: 11px; letter-spacing: .1em; }
+  .tag { color: #5A554A; font-size: 11px; line-height: 1.6; }
+  label.field { display: flex; flex-direction: column; gap: 6px; }
+  label.field > span { color: #4A463D; letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
+  input[type=text], select {
+    background: #0C0B09; border: 1px solid var(--line); color: var(--hi);
+    border-radius: 6px; padding: 9px 10px; font: inherit; outline: none; }
+  input[type=text]:focus, select:focus { border-color: var(--me); }
+  input[type=range] { width: 100%; accent-color: var(--me); }
+  .slider { display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; align-items: center; }
+  .slider .num { color: var(--ink); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+  .rowline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--ink); cursor: pointer; }
+  .check input { accent-color: var(--me); width: 14px; height: 14px; }
+  button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line);
+           background: #17150F; color: var(--ink); padding: 9px 12px; }
+  button:hover { border-color: #3A362E; color: var(--hi); }
+  button.primary { background: var(--me); border-color: var(--me); color: #06100F;
+                   font-weight: 700; letter-spacing: .04em; padding: 12px; }
+  button.primary:hover { filter: brightness(1.08); color: #06100F; }
+  .btnrow { display: flex; gap: 10px; }
+  .btnrow button { flex: 1; }
+  .avatar-row { display: flex; align-items: center; gap: 12px; }
+  #avatarPreview { width: 46px; height: 46px; border: 1px solid var(--line); border-radius: 6px;
+                   background: #0C0B09 center/cover no-repeat; flex: none; }
+  .avatar-actions { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .muted { color: #5A554A; font-size: 10px; }
+  .tut ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .tut li { display: flex; gap: 10px; color: var(--ink); align-items: baseline; }
+  .tut li b { color: var(--hi); }
+  .tut .glyph { color: var(--me); font-size: 13px; flex: none; width: 20px; }
+</style>
+</head>
+<body>
+  <canvas id="base"></canvas>
+  <canvas id="pulse"></canvas>
+  <div id="hitFlash"></div>
+
+  <div id="hud">
+    <div class="row">
+      <div><div class="k">score</div><div id="score">0</div></div>
+      <div><div class="k">beat</div><div id="beat"></div></div>
+      <div><div class="k">players</div><div class="v" id="players">0</div></div>
+      <div><div class="k">rtt</div><div class="v" id="ping">–</div></div>
+      <div><div class="k">sync</div><div class="v connecting" id="sync">…</div></div>
+    </div>
+    <div class="row">
+      <div id="help">drag from your own trace to etch · wasd pans · scroll zooms · sources fire on beat 0 of every measure</div>
+      <div class="v" id="board"></div>
+    </div>
+  </div>
+
+  <div id="leaderboard" hidden>
+    <div class="k">leaderboard</div>
+    <ol id="lbList"></ol>
+  </div>
+
+  <div id="abilities" hidden>
+    <div id="tierWrap">
+      <span id="tierName">TIER 0 · ETCHER</span>
+      <div id="tierBar"><div id="tierFill"></div></div>
+      <span id="tierNext"></span>
+    </div>
+    <div class="abilities-row">
+      <div class="ability" id="abSurge"><span class="ab-key">SPACE</span><span class="ab-name">Surge</span><span class="ab-state"></span></div>
+      <div class="ability" id="abVia"><span class="ab-key">V</span><span class="ab-name">Via Blower</span><span class="ab-state"></span></div>
+      <div class="ability" id="abJammer"><span class="ab-key">G</span><span class="ab-name">Jammer</span><span class="ab-state"></span></div>
+    </div>
+  </div>
+
+  <canvas id="minimap" width="128" height="128" hidden></canvas>
+
+  <!-- ===== main menu ===== -->
+  <div id="menu" class="overlay">
+    <div class="card">
+      <div class="brand"><h1>SKEW</h1><span>.IO</span></div>
+      <div class="tag">Route beat-synchronised pulses into demand nodes to score.
+        The whole board pulses in unison — read the β cost, win the corridor.</div>
+      <label class="field">
+        <span>callsign</span>
+        <input id="nameInput" type="text" maxlength="16" placeholder="etcher" autocomplete="off" spellcheck="false" />
+      </label>
+      <button id="playBtn" class="primary">▶ PLAY</button>
+      <div class="btnrow">
+        <button id="howBtn">How to play</button>
+        <button id="settingsBtn">Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== settings ===== -->
+  <div id="settings" class="overlay" hidden>
+    <div class="card">
+      <div class="brand"><h1 style="font-size:16px">SETTINGS</h1></div>
+
+      <div class="rowline">
+        <label class="check"><input id="setMute" type="checkbox" /> Master mute</label>
+      </div>
+      <label class="field"><span>music volume</span>
+        <div class="slider"><input id="setMusic" type="range" min="0" max="100" /><span class="num" id="setMusicNum">50</span></div>
+      </label>
+      <label class="field"><span>sfx volume</span>
+        <div class="slider"><input id="setSfx" type="range" min="0" max="100" /><span class="num" id="setSfxNum">70</span></div>
+      </label>
+      <label class="field"><span>theme</span>
+        <select id="setTheme"></select>
+      </label>
+      <label class="field"><span>camera pan speed</span>
+        <div class="slider"><input id="setPan" type="range" min="300" max="1800" step="50" /><span class="num" id="setPanNum">900</span></div>
+      </label>
+
+      <label class="field"><span>source avatar (broadcast to all)</span>
+        <div class="avatar-row">
+          <div id="avatarPreview"></div>
+          <div class="avatar-actions">
+            <button id="avatarPick">Upload square image…</button>
+            <button id="avatarClear">Clear</button>
+          </div>
+        </div>
+        <span class="muted">Center-cropped to a square, sent to everyone on the board.</span>
+        <input id="avatarFile" type="file" accept="image/*" hidden />
+      </label>
+
+      <div class="btnrow">
+        <button id="setHow">How to play</button>
+        <button id="setClose" class="primary" style="color:#06100F">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== tutorial ===== -->
+  <div id="tutorial" class="overlay" hidden>
+    <div class="card tut">
+      <div class="brand"><h1 style="font-size:16px">HOW TO PLAY</h1></div>
+      <ul>
+        <li><span class="glyph">◆</span><span>You start as a <b>source</b> (the diamond). <b>Drag from it</b> to etch a trace across the lattice.</span></li>
+        <li><span class="glyph">→</span><span>Every source fires on <b>beat 0 of each measure</b>. Route your pulse into a <b>□ node</b> to capture it — it then pays you every measure.</span></li>
+        <li><span class="glyph">β</span><span>The number at the head of your drag is the path's <b>cost in beats</b>. Diagonals cost 1.42. That number is the whole game.</span></li>
+        <li><span class="glyph">⌫</span><span>Drag <b>back over the path</b> you're drawing to rub it out. <b>WASD / arrows</b> pan the camera.</span></li>
+        <li><span class="glyph">⚡</span><span>Score to arm attacks. At <b>120</b>, hover a cell you own and press <b>Space</b> to <b>Surge</b> (fry adjacent rival traces). At <b>400</b>, aim at an enemy junction and press <b>V</b> to blow their <b>via</b>. At <b>900</b>, hover an empty cell and press <b>G</b> to plant a permanent <b>Jammer</b>. Attacks cost score and have a cooldown.</span></li>
+        <li><span class="glyph">•••</span><span>The <b>8 pips</b> top-left are the measure clock, shared by everyone. <b>SYNC</b> must stay green.</span></li>
+      </ul>
+      <button id="tutClose" class="primary" style="color:#06100F">Got it</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

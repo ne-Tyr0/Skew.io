@@ -48,6 +48,40 @@ Production-ish (server serves the built client on one port):
 npm run build && npm start   # http://localhost:8787
 ```
 
+## Deploy
+
+Production is **one Node process** that serves the built client *and* the WebSocket
+on a single port (`process.env.PORT`, default 8787). No proxy, no second service —
+the client always talks to same-origin `/ws`. That makes it a clean fit for any host
+that runs Node and allows WebSockets: **Render**, **Railway**, or **Fly.io**.
+
+### Render (free tier, ~5 minutes)
+
+1. Push this repo to GitHub.
+2. Render → **New → Web Service** → connect the repo.
+3. **Root Directory:** `skew-slice`  (the project is in this subfolder).
+4. **Build Command:** `npm install --include=dev && npm run build`
+5. **Start Command:** `npm start`
+6. **Environment:** add `BOTS=6` so the demo isn't an empty board. Leave `PORT`
+   alone — Render sets it and the server reads it.
+7. **Create Web Service.** First build takes a minute or two; then open the URL.
+
+The client auto-detects `https` and connects over `wss://`, so TLS just works.
+Open the URL in two tabs (or share it) to see multiplayer; the bots keep it lively
+solo. On the free tier the service sleeps after ~15 min idle and cold-starts in
+~30 s — fine for a demo.
+
+> **Why `--include=dev` in the build?** The build needs `vite`, and `npm start` runs
+> the server through `tsx` (`node --import tsx`) — both are `devDependencies`. Hosts
+> that set `NODE_ENV=production` skip dev deps by default, so `--include=dev` forces
+> them in. (Alternatively, move `tsx` and `vite` into `dependencies`.) If a deploy
+> ever fails with *"Cannot find package 'tsx'/'vite'"*, this is why.
+
+**Railway / Fly.io** work the same way — set the root/working directory to
+`skew-slice`, build with `npm install --include=dev && npm run build`, start with
+`npm start`, and expose the web port. Fly needs a `Dockerfile` or `flyctl launch`;
+ask if you want one committed.
+
 ## Menu & shell
 
 Opening the page now lands on a **menu**, not straight in the board — but the fast

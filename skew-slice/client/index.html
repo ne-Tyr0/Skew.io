@@ -73,10 +73,10 @@
   .ability.poor { border-color: #6b5a1e; }
   .ability.poor .ab-state { color: #E8C33A; }
 
-  /* ---- minimap ---- */
-  #minimap { position: fixed; right: 16px; bottom: 16px; width: 132px; height: 132px;
-             border: 1px solid var(--line); background: var(--bg); image-rendering: pixelated;
-             pointer-events: auto; cursor: pointer; opacity: .92; }
+  /* ---- minimap (bottom-right corner) ---- */
+  #minimap { position: fixed; right: 16px; bottom: 16px; width: 140px; height: 140px; z-index: 6;
+             border: 1px solid #4A463D; border-radius: 6px; background: #0C0B09; image-rendering: pixelated;
+             pointer-events: auto; cursor: pointer; box-shadow: 0 2px 14px rgba(0,0,0,.55); }
   #minimap[hidden] { display: none; }
 
   /* ---- round timer + winner banner ---- */

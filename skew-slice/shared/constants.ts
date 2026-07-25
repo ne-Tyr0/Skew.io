@@ -17,9 +17,10 @@ export const TICK_MS = BEAT_MS / TICKS_PER_BEAT; // ~10.4167ms (clock only, neve
 export const BEATS_PER_MEASURE = 8;
 export const TICKS_PER_MEASURE = TICKS_PER_BEAT * BEATS_PER_MEASURE;
 
-// Sources fire on this cadence (was once per measure). 4 beats = 0.5s => livelier
-// board, faster feedback. Node hold income + jammers still tick per measure.
-export const FIRE_EVERY_BEATS = 4;
+// Sources fire on this cadence (was once per measure). 6 beats = 0.75s: livelier
+// than the original 1s but calmer than 0.5s (which read as too frantic). Node hold
+// income + jammers still tick per measure. Fire Now (F) covers impatience.
+export const FIRE_EVERY_BEATS = 6;
 
 // "Fire Now" (key F): launch an extra pulse from your source on demand. No score
 // cost and no tier gate — it's a basic agency verb — just a short cooldown so it's
